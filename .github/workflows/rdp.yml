@@ -1,0 +1,48 @@
+name: Windows RDP with Tailscale
+
+on:
+  workflow_dispatch:
+
+jobs:
+  rdp-session:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Enable Remote Desktop (RDP)
+        shell: powershell
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0
+          Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
+
+      - name: Set RDP User Password
+        shell: powershell
+        run: |
+          $Password = ConvertTo-SecureString "${{ secrets.RDP_PASSWORD }}" -AsPlainText -Force
+          Set-LocalUser -Name "runneradmin" -Password $Password
+
+      - name: Download & Install Tailscale
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
+          Start-Process -FilePath "tailscale-setup.exe" -ArgumentList "/quiet" -Wait
+          $env:Path += ";C:\Program Files\Tailscale"
+          [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::Machine)
+
+      - name: Connect to Tailscale Network
+        shell: cmd
+        run: |
+          "C:\Program Files\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTHKEY }} --hostname=github-rdp --accept-routes
+
+      - name: Keep Runner Alive
+        shell: powershell
+        run: |
+          Write-Host "Tailscale RDP সফলভাবে প্রস্তুত হয়েছে!"
+          Write-Host "আপনার ল্যাপটপ থেকে Tailscale আইপি বা 'github-rdp' ব্যবহার করে কানেক্ট করুন।"
+          
+          $limitMinutes = 350
+          for ($i = 1; $i -le $limitMinutes; $i++) {
+              Start-Sleep -Seconds 60
+              Write-Host "রানার সচল রয়েছে: $i মিনিট অতিক্রান্ত..."
+          }
