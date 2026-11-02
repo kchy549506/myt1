@@ -1,4 +1,4 @@
-name: Windows RDP with Tailscale & Pre-installed Apps
+name: Windows RDP with Tailscale & Pre-Installed Apps
 
 on:
   workflow_dispatch:
@@ -40,24 +40,24 @@ jobs:
       - name: 5. Setup AutoHotkey Script & Enable on Taskbar (Startup)
         shell: powershell
         run: |
-          $scriptContent = @'
-#Requires AutoHotkey v2.0
-
-Esc::Send "^c"
-F1::Send "^v"
-`::Send "^a"
-NumpadSub::Send "{Backspace}"
-NumpadAdd::Send "#{PrintScreen}"
-'@
-          # Desktop-এ ফাইল সেভ করা
           $desktopPath = "C:\Users\runneradmin\Desktop\custom_shortcuts.ahk"
-          Set-Content -Path $desktopPath -Value $scriptContent -Encoding UTF8
-
-          # Windows Startup ফোল্ডারে রাখা (লগইন করলেই অটো টাস্কবারে রান হবে)
           $startupPath = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\custom_shortcuts.ahk"
-          Set-Content -Path $startupPath -Value $scriptContent -Encoding UTF8
 
-          # Windows Registry Run-এ যুক্ত করা নিশ্চিত করার জন্য
+          $scriptLines = @(
+              '#Requires AutoHotkey v2.0',
+              '',
+              'Esc::Send "^c"',
+              'F1::Send "^v"',
+              '`::Send "^a"',
+              'NumpadSub::Send "{Backspace}"',
+              'NumpadAdd::Send "#{PrintScreen}"'
+          )
+
+          # Desktop ও Startup উভয় ফোল্ডারে সেভ করা
+          $scriptLines | Set-Content -Path $desktopPath -Encoding UTF8
+          $scriptLines | Set-Content -Path $startupPath -Encoding UTF8
+
+          # Windows Registry Run এ যোগ করা
           Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "CustomHotkeys" -Value "cmd.exe /c start `"`" `"$startupPath`""
           Write-Host "AutoHotkey script successfully configured for Auto-Start!"
 
@@ -78,8 +78,6 @@ NumpadAdd::Send "#{PrintScreen}"
         shell: powershell
         run: |
           Write-Host "Tailscale RDP Ready!"
-          Write-Host "Tailscale IP দিয়ে 'runneradmin' এবং আপনার পাসওয়ার্ড দিয়ে কানেক্ট করুন।"
-          
           $limitMinutes = 350
           for ($i = 1; $i -le $limitMinutes; $i++) {
               Start-Sleep -Seconds 60
