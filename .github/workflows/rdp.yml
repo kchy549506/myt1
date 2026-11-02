@@ -1,4 +1,4 @@
-name: Windows RDP with Tailscale & Pre-Installed Apps
+name: Windows RDP with Tailscale & Pre-installed Apps
 
 on:
   workflow_dispatch:
@@ -22,13 +22,39 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-      - name: 3. Install Apps (Chrome, Telegram, WinRAR, AutoHotkey v2)
+      - name: 3. Install Apps (Telegram, WinRAR, AutoHotkey v2)
+        continue-on-error: true
         shell: powershell
         run: |
-          Write-Host "Installing Chrome, Telegram, WinRAR and AutoHotkey..."
-          choco install googlechrome telegram winrar autohotkey -y
+          Write-Host "Installing WinRAR and AutoHotkey v2 via Chocolatey..."
+          choco install winrar autohotkey -y --ignore-package-exit-codes --no-progress
+
+          Write-Host "Setting up Chrome Shortcut on Desktop..."
+          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (Test-Path $chromePath) {
+              $WshShell = New-Object -ComObject WScript.Shell
+              $Shortcut = $WshShell.CreateShortcut("C:\Users\runneradmin\Desktop\Google Chrome.lnk")
+              $Shortcut.TargetPath = $chromePath
+              $Shortcut.Save()
+          }
+
+          Write-Host "Downloading Telegram Desktop Portable..."
+          $desktop = "C:\Users\runneradmin\Desktop"
+          Invoke-WebRequest -Uri "https://telegram.org/dl/desktop/win64_portable" -OutFile "$desktop\Telegram.zip"
+          Expand-Archive -Path "$desktop\Telegram.zip" -DestinationPath "$desktop\Telegram" -Force
+          Remove-Item "$desktop\Telegram.zip" -Force
+
+          $telegramExe = "C:\Users\runneradmin\Desktop\Telegram\Telegram.exe"
+          if (Test-Path $telegramExe) {
+              $WshShell = New-Object -ComObject WScript.Shell
+              $Shortcut = $WshShell.CreateShortcut("C:\Users\runneradmin\Desktop\Telegram.lnk")
+              $Shortcut.TargetPath = $telegramExe
+              $Shortcut.Save()
+          }
+          Write-Host "Telegram and Desktop Shortcuts successfully created!"
 
       - name: 4. Install Google Antigravity IDE
+        continue-on-error: true
         shell: powershell
         run: |
           Write-Host "Downloading Google Antigravity IDE..."
@@ -53,11 +79,11 @@ jobs:
               'NumpadAdd::Send "#{PrintScreen}"'
           )
 
-          # Desktop ও Startup উভয় ফোল্ডারে সেভ করা
+          # Save to Desktop and Startup folder
           $scriptLines | Set-Content -Path $desktopPath -Encoding UTF8
           $scriptLines | Set-Content -Path $startupPath -Encoding UTF8
 
-          # Windows Registry Run এ যোগ করা
+          # Add to Registry Run
           Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "CustomHotkeys" -Value "cmd.exe /c start `"`" `"$startupPath`""
           Write-Host "AutoHotkey script successfully configured for Auto-Start!"
 
