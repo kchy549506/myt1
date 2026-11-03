@@ -96,7 +96,71 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "CustomHotkeys" -Value "cmd.exe /c start `"`" `"$startupPath`""
           Write-Host "AutoHotkey script successfully configured for Auto-Start!"
 
-      - name: 6. Install & Configure Tailscale
+      - name: 6. Setup Network Speed Monitor (TrafficMonitor on Taskbar)
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Write-Host "Downloading TrafficMonitor..."
+          $tmZip = "$env:TEMP\TrafficMonitor.zip"
+          $tmInstallDir = "C:\Program Files\TrafficMonitor"
+          curl.exe -L -o $tmZip "https://github.com/zhongyang219/TrafficMonitor/releases/download/V1.86/TrafficMonitor_V1.86_x64_Lite.zip"
+
+          Write-Host "Extracting TrafficMonitor..."
+          Expand-Archive -Path $tmZip -DestinationPath "$env:TEMP\tm_extract" -Force
+          New-Item -ItemType Directory -Path $tmInstallDir -Force | Out-Null
+          Copy-Item -Path "$env:TEMP\tm_extract\TrafficMonitor\*" -Destination $tmInstallDir -Recurse -Force
+          Remove-Item -Path $tmZip -Force
+          Remove-Item -Path "$env:TEMP\tm_extract" -Recurse -Force
+
+          # Configure config.ini for Taskbar display and MB/s auto-scale
+          $configLines = @(
+              '[config]',
+              'show_task_bar_wnd = true',
+              'hide_main_window = false',
+              'auto_select = true',
+              'speed_unit = 0',
+              'unit_byte = true',
+              'hide_unit = false',
+              'separate_value_unit_with_space = true',
+              'show_notify_icon = true',
+              '',
+              '[task_bar]',
+              'show_task_bar_wnd = true',
+              'task_bar_speed_unit = 0',
+              'task_bar_hide_unit = false',
+              'horizontal_arrange = true',
+              'auto_set_background_color = true',
+              'auto_adapt_light_theme = true',
+              '',
+              '[general]',
+              'check_update_when_start = false',
+              '',
+              '[other]',
+              'no_multistart_warning = true'
+          )
+          $configLines | Set-Content -Path "$tmInstallDir\config.ini" -Encoding UTF8
+          $appDataDir = "C:\Users\runneradmin\AppData\Roaming\TrafficMonitor"
+          New-Item -ItemType Directory -Path $appDataDir -Force | Out-Null
+          $configLines | Set-Content -Path "$appDataDir\config.ini" -Encoding UTF8
+
+          # Add to Windows Startup & Registry Run
+          $startupFolder = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup"
+          $WshShell = New-Object -ComObject WScript.Shell
+          $shortcut = $WshShell.CreateShortcut("$startupFolder\TrafficMonitor.lnk")
+          $shortcut.TargetPath = "$tmInstallDir\TrafficMonitor.exe"
+          $shortcut.WorkingDirectory = $tmInstallDir
+          $shortcut.Save()
+
+          # Desktop Shortcut
+          $desktopShortcut = $WshShell.CreateShortcut("C:\Users\Public\Desktop\TrafficMonitor.lnk")
+          $desktopShortcut.TargetPath = "$tmInstallDir\TrafficMonitor.exe"
+          $desktopShortcut.WorkingDirectory = $tmInstallDir
+          $desktopShortcut.Save()
+
+          Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "TrafficMonitor" -Value "`"$tmInstallDir\TrafficMonitor.exe`""
+          Write-Host "TrafficMonitor successfully configured for Taskbar Auto-Start!"
+
+      - name: 7. Install & Configure Tailscale
         shell: powershell
         run: |
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
@@ -104,12 +168,12 @@ jobs:
           $env:Path += ";C:\Program Files\Tailscale"
           [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::Machine)
 
-      - name: 7. Start Tailscale Connection
+      - name: 8. Start Tailscale Connection
         shell: cmd
         run: |
           "C:\Program Files\Tailscale\tailscale.exe" up --authkey=tskey-auth-ki6zrb4Wnc11CNTRL-m5QTzuLAESKjxSj4ZPMURKGVSsSQS24s --hostname=github-rdp --accept-routes
 
-      - name: 8. Keep RDP Session Alive (6 Hours)
+      - name: 9. Keep RDP Session Alive (6 Hours)
         shell: powershell
         run: |
           Write-Host "Tailscale RDP Ready!"
