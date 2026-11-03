@@ -22,51 +22,59 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-      - name: 3. Install Apps (Telegram, WinRAR, AutoHotkey v2)
+      - name: 3. Install WinRAR and AutoHotkey v2
         continue-on-error: true
         shell: powershell
         run: |
           Write-Host "Installing WinRAR and AutoHotkey v2 via Chocolatey..."
           choco install winrar autohotkey -y --ignore-package-exit-codes --no-progress
 
-          Write-Host "Setting up Chrome Shortcut on Desktop..."
-          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-          if (Test-Path $chromePath) {
-              $WshShell = New-Object -ComObject WScript.Shell
-              $Shortcut = $WshShell.CreateShortcut("C:\Users\runneradmin\Desktop\Google Chrome.lnk")
-              $Shortcut.TargetPath = $chromePath
-              $Shortcut.Save()
-          }
-
-          Write-Host "Downloading Telegram Desktop Portable..."
-          $desktop = "C:\Users\runneradmin\Desktop"
-          Invoke-WebRequest -Uri "https://telegram.org/dl/desktop/win64_portable" -OutFile "$desktop\Telegram.zip"
-          Expand-Archive -Path "$desktop\Telegram.zip" -DestinationPath "$desktop\Telegram" -Force
-          Remove-Item "$desktop\Telegram.zip" -Force
-
-          $telegramExe = "C:\Users\runneradmin\Desktop\Telegram\Telegram.exe"
-          if (Test-Path $telegramExe) {
-              $WshShell = New-Object -ComObject WScript.Shell
-              $Shortcut = $WshShell.CreateShortcut("C:\Users\runneradmin\Desktop\Telegram.lnk")
-              $Shortcut.TargetPath = $telegramExe
-              $Shortcut.Save()
-          }
-          Write-Host "Telegram and Desktop Shortcuts successfully created!"
-
-      - name: 4. Install Google Antigravity IDE
+      - name: 4. Install Telegram Desktop and Setup Desktop Shortcuts
         continue-on-error: true
         shell: powershell
         run: |
-          Write-Host "Downloading Google Antigravity IDE..."
-          $url = "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/windows-x64/Antigravity%20IDE.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:TEMP\AntigravitySetup.exe"
-          Write-Host "Installing Google Antigravity IDE silently..."
-          Start-Process -FilePath "$env:TEMP\AntigravitySetup.exe" -ArgumentList "/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode" -Wait
+          # Ensure Desktop folders exist
+          New-Item -ItemType Directory -Path "C:\Users\runneradmin\Desktop" -Force | Out-Null
+          $publicDesktop = "C:\Users\Public\Desktop"
+          $userDesktop = "C:\Users\runneradmin\Desktop"
+
+          # 1. Download & Install Telegram Desktop
+          Write-Host "Downloading Telegram Desktop Official Installer..."
+          curl.exe -L -o "$env:TEMP\tsetup.exe" "https://telegram.org/dl/desktop/win64"
+          Write-Host "Installing Telegram Desktop silently..."
+          Start-Process -FilePath "$env:TEMP\tsetup.exe" -ArgumentList "/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"C:\Program Files\Telegram Desktop`"" -Wait
+
+          # Create Desktop Shortcuts
+          $WshShell = New-Object -ComObject WScript.Shell
+
+          # Telegram Shortcut
+          $tgPath = "C:\Program Files\Telegram Desktop\Telegram.exe"
+          if (Test-Path $tgPath) {
+              $sc1 = $WshShell.CreateShortcut("$publicDesktop\Telegram.lnk")
+              $sc1.TargetPath = $tgPath
+              $sc1.Save()
+              $sc2 = $WshShell.CreateShortcut("$userDesktop\Telegram.lnk")
+              $sc2.TargetPath = $tgPath
+              $sc2.Save()
+          }
+
+          # Chrome Shortcut
+          $chromePath = "C:\Program Files\Google\Chrome\Application\chrome.exe"
+          if (Test-Path $chromePath) {
+              $sc3 = $WshShell.CreateShortcut("$publicDesktop\Google Chrome.lnk")
+              $sc3.TargetPath = $chromePath
+              $sc3.Save()
+              $sc4 = $WshShell.CreateShortcut("$userDesktop\Google Chrome.lnk")
+              $sc4.TargetPath = $chromePath
+              $sc4.Save()
+          }
+          Write-Host "Telegram installed and Desktop Shortcuts ready!"
 
       - name: 5. Setup AutoHotkey Script & Enable on Taskbar (Startup)
         shell: powershell
         run: |
-          $desktopPath = "C:\Users\runneradmin\Desktop\custom_shortcuts.ahk"
+          $userDesktopPath = "C:\Users\runneradmin\Desktop\custom_shortcuts.ahk"
+          $publicDesktopPath = "C:\Users\Public\Desktop\custom_shortcuts.ahk"
           $startupPath = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\custom_shortcuts.ahk"
 
           $scriptLines = @(
@@ -79,8 +87,9 @@ jobs:
               'NumpadAdd::Send "#{PrintScreen}"'
           )
 
-          # Save to Desktop and Startup folder
-          $scriptLines | Set-Content -Path $desktopPath -Encoding UTF8
+          # Save to Desktops and Startup folder
+          $scriptLines | Set-Content -Path $userDesktopPath -Encoding UTF8
+          $scriptLines | Set-Content -Path $publicDesktopPath -Encoding UTF8
           $scriptLines | Set-Content -Path $startupPath -Encoding UTF8
 
           # Add to Registry Run
