@@ -22,14 +22,62 @@ jobs:
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 1
 
-      - name: 3. Install WinRAR and AutoHotkey v2
+      - name: 3. Configure Windows Preferences (Default Chrome, Dark Mode, Explorer & Mouse Tweaks)
+        shell: powershell
+        run: |
+          Write-Host "Configuring Windows Preferences..."
+
+          # 1. Set Google Chrome as Default Browser
+          $assocXml = "C:\Windows\Temp\DefaultAssociations.xml"
+          $assocLines = @(
+              '<?xml version="1.0" encoding="UTF-8"?>',
+              '<DefaultAssociations>',
+              '  <Association Identifier=".htm" ProgId="ChromeHTML" ApplicationName="Google Chrome" />',
+              '  <Association Identifier=".html" ProgId="ChromeHTML" ApplicationName="Google Chrome" />',
+              '  <Association Identifier="http" ProgId="ChromeHTML" ApplicationName="Google Chrome" />',
+              '  <Association Identifier="https" ProgId="ChromeHTML" ApplicationName="Google Chrome" />',
+              '</DefaultAssociations>'
+          )
+          $assocLines | Set-Content -Path $assocXml -Encoding UTF8
+          Dism.exe /Online /Import-DefaultAppAssociations:$assocXml
+
+          # 2. Configure Tweaks for Logon (Dark Mode, This PC, Single-Click, Show File Extensions)
+          $tweakLines = @(
+              '# Dark Mode (System and Apps)',
+              '$themePath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"',
+              'if (-not (Test-Path $themePath)) { New-Item -Path $themePath -Force | Out-Null }',
+              'Set-ItemProperty -Path $themePath -Name "AppsUseLightTheme" -Value 0',
+              'Set-ItemProperty -Path $themePath -Name "SystemUsesLightTheme" -Value 0',
+              '',
+              '# File Explorer: Open to This PC (1) and Show File Extensions (0)',
+              '$explorerAdv = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"',
+              'if (-not (Test-Path $explorerAdv)) { New-Item -Path $explorerAdv -Force | Out-Null }',
+              'Set-ItemProperty -Path $explorerAdv -Name "LaunchTo" -Value 1',
+              'Set-ItemProperty -Path $explorerAdv -Name "HideFileExt" -Value 0',
+              '',
+              '# Mouse: Single-click to open an item',
+              '$explorer = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer"',
+              'Set-ItemProperty -Path $explorer -Name "IconUnderline" -Value 2',
+              'Set-ItemProperty -Path $explorer -Name "ShellState" -Value ([byte[]](24,0,0,0,30,168,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,19,0,0,0,0,0,0,0,98,0,0,0))'
+          )
+
+          # Apply to current session
+          Invoke-Expression ($tweakLines -join "`n")
+
+          # Ensure it automatically runs when runneradmin logs in via RDP
+          $tweakScriptPath = "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\apply_user_tweaks.ps1"
+          $tweakLines | Set-Content -Path $tweakScriptPath -Encoding UTF8
+          Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "UserTweaks" -Value "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$tweakScriptPath`""
+          Write-Host "Windows Preferences configured: Dark Mode, Default Chrome, This PC, Single-Click & File Extensions enabled!"
+
+      - name: 4. Install WinRAR and AutoHotkey v2
         continue-on-error: true
         shell: powershell
         run: |
           Write-Host "Installing WinRAR and AutoHotkey v2 via Chocolatey..."
           choco install winrar autohotkey -y --ignore-package-exit-codes --no-progress
 
-      - name: 4. Install Telegram Desktop and Setup Desktop Shortcuts
+      - name: 5. Install Telegram Desktop and Setup Desktop Shortcuts
         continue-on-error: true
         shell: powershell
         run: |
@@ -39,8 +87,8 @@ jobs:
           $userDesktop = "C:\Users\runneradmin\Desktop"
 
           # 1. Download & Install Telegram Desktop
-          Write-Host "Downloading Telegram Desktop Official Installer..."
-          curl.exe -L -o "$env:TEMP\tsetup.exe" "https://telegram.org/dl/desktop/win64"
+          Write-Host "Downloading Telegram Desktop Official Installer (Silent)..."
+          curl.exe -sSL -o "$env:TEMP\tsetup.exe" "https://telegram.org/dl/desktop/win64"
           Write-Host "Installing Telegram Desktop silently..."
           Start-Process -FilePath "$env:TEMP\tsetup.exe" -ArgumentList "/SP-", "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/DIR=`"C:\Program Files\Telegram Desktop`"" -Wait
 
@@ -70,7 +118,53 @@ jobs:
           }
           Write-Host "Telegram installed and Desktop Shortcuts ready!"
 
-      - name: 5. Setup AutoHotkey Script & Enable on Taskbar (Startup)
+      - name: 6. Install AyuGram Desktop
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Write-Host "Downloading AyuGram Desktop..."
+          $ayuZip = "$env:TEMP\AyuGram.zip"
+          $ayuDir = "C:\Program Files\AyuGram"
+          curl.exe -sSL -o $ayuZip "https://github.com/AyuGram/AyuGramDesktop/releases/latest/download/AyuGram.zip"
+
+          Write-Host "Extracting AyuGram Desktop..."
+          New-Item -ItemType Directory -Path $ayuDir -Force | Out-Null
+          Expand-Archive -Path $ayuZip -DestinationPath $ayuDir -Force
+          Remove-Item -Path $ayuZip -Force
+
+          # Create Desktop Shortcuts
+          $WshShell = New-Object -ComObject WScript.Shell
+          $publicDesktop = "C:\Users\Public\Desktop"
+          $userDesktop = "C:\Users\runneradmin\Desktop"
+
+          $ayuExe = "$ayuDir\AyuGram.exe"
+          if (Test-Path $ayuExe) {
+              $scAyu1 = $WshShell.CreateShortcut("$publicDesktop\AyuGram.lnk")
+              $scAyu1.TargetPath = $ayuExe
+              $scAyu1.WorkingDirectory = $ayuDir
+              $scAyu1.Save()
+
+              $scAyu2 = $WshShell.CreateShortcut("$userDesktop\AyuGram.lnk")
+              $scAyu2.TargetPath = $ayuExe
+              $scAyu2.WorkingDirectory = $ayuDir
+              $scAyu2.Save()
+              Write-Host "AyuGram Desktop installed and Shortcuts ready!"
+          }
+
+      - name: 7. Install Google Antigravity IDE (Fast & Silent)
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Write-Host "Downloading Google Antigravity IDE from Google CDN (Fast)..."
+          $url = "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/windows-x64/Antigravity%20IDE.exe"
+          $ideSetup = "$env:TEMP\AntigravitySetup.exe"
+          curl.exe -sSL -o $ideSetup $url
+          Write-Host "Installing Google Antigravity IDE silently..."
+          Start-Process -FilePath $ideSetup -ArgumentList "/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode" -Wait
+          Remove-Item -Path $ideSetup -Force
+          Write-Host "Google Antigravity IDE successfully installed!"
+
+      - name: 8. Setup AutoHotkey Script & Enable on Taskbar (Startup)
         shell: powershell
         run: |
           $userDesktopPath = "C:\Users\runneradmin\Desktop\custom_shortcuts.ahk"
@@ -96,14 +190,14 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "CustomHotkeys" -Value "cmd.exe /c start `"`" `"$startupPath`""
           Write-Host "AutoHotkey script successfully configured for Auto-Start!"
 
-      - name: 6. Setup Network Speed Monitor (TrafficMonitor on Taskbar)
+      - name: 9. Setup Network Speed Monitor (TrafficMonitor on Taskbar)
         continue-on-error: true
         shell: powershell
         run: |
-          Write-Host "Downloading TrafficMonitor..."
+          Write-Host "Downloading TrafficMonitor (Silent)..."
           $tmZip = "$env:TEMP\TrafficMonitor.zip"
           $tmInstallDir = "C:\Program Files\TrafficMonitor"
-          curl.exe -L -o $tmZip "https://github.com/zhongyang219/TrafficMonitor/releases/download/V1.86/TrafficMonitor_V1.86_x64_Lite.zip"
+          curl.exe -sSL -o $tmZip "https://github.com/zhongyang219/TrafficMonitor/releases/download/V1.86/TrafficMonitor_V1.86_x64_Lite.zip"
 
           Write-Host "Extracting TrafficMonitor..."
           Expand-Archive -Path $tmZip -DestinationPath "$env:TEMP\tm_extract" -Force
@@ -160,7 +254,7 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name "TrafficMonitor" -Value "`"$tmInstallDir\TrafficMonitor.exe`""
           Write-Host "TrafficMonitor successfully configured for Taskbar Auto-Start!"
 
-      - name: 7. Install & Configure Tailscale
+      - name: 10. Install & Configure Tailscale
         shell: powershell
         run: |
           Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
@@ -168,12 +262,12 @@ jobs:
           $env:Path += ";C:\Program Files\Tailscale"
           [Environment]::SetEnvironmentVariable("Path", $env:Path, [EnvironmentVariableTarget]::Machine)
 
-      - name: 8. Start Tailscale Connection
+      - name: 11. Start Tailscale Connection
         shell: cmd
         run: |
           "C:\Program Files\Tailscale\tailscale.exe" up --authkey=tskey-auth-ki6zrb4Wnc11CNTRL-m5QTzuLAESKjxSj4ZPMURKGVSsSQS24s --hostname=github-rdp --accept-routes
 
-      - name: 9. Keep RDP Session Alive (6 Hours)
+      - name: 12. Keep RDP Session Alive (6 Hours)
         shell: powershell
         run: |
           Write-Host "Tailscale RDP Ready!"
